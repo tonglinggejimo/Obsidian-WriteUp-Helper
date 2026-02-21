@@ -99,7 +99,7 @@ class WriteUpHelper {
 
         // 检查模板字段
         if (config.template !== undefined) {
-            const validTemplates = ['standard', 'detailed', 'simple', 'custom'];
+            const validTemplates = ['standard', 'detailed', 'simple', 'custom', 'xuanji'];
             if (!validTemplates.includes(config.template)) {
                 return false;
             }
@@ -613,6 +613,7 @@ class WriteUpHelper {
                                 <option value="standard" ${this.config.template === 'standard' ? 'selected' : ''}>标准模板</option>
                                 <option value="detailed" ${this.config.template === 'detailed' ? 'selected' : ''}>详细模板</option>
                                 <option value="simple" ${this.config.template === 'simple' ? 'selected' : ''}>简洁模板</option>
+                                <option value="xuanji" ${this.config.template === 'xuanji' ? 'selected' : ''}>玄机模板（含题目步骤）</option>
                                 <option value="custom" ${this.config.template === 'custom' ? 'selected' : ''}>自定义模板</option>
                             </select>
                         </div>
@@ -620,7 +621,7 @@ class WriteUpHelper {
                             <label>模板内容:</label>
                             <textarea id="template-content" placeholder="在此编辑模板内容..."></textarea>
                             <div class="template-help">
-                                <small>支持的变量: {{title}}, {{url}}, {{date}}, {{time}}</small>
+                                <small>支持的变量: {{title}}, {{url}}, {{date}}, {{time}}, {{steps}}（玄机平台题目步骤）</small>
                             </div>
                         </div>
                     </div>
@@ -1116,16 +1117,22 @@ class WriteUpHelper {
      * 生成WriteUp模板
      * @param {string} title - 题目标题
      * @param {string} url - 题目链接
+     * @param {Object} options - 可选参数 { steps: string }
      * @returns {string} 生成的模板内容
      */
-    generateTemplate(title, url) {
+    generateTemplate(title, url, options = {}) {
         const now = new Date();
         const dateStr = now.toISOString().split('T')[0];
         const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false });
 
         // 获取模板内容
         let content;
-        const templateName = this.config.template || 'standard';
+        let templateName = this.config.template || 'standard';
+
+        // 玄机平台使用专用模板，包含题目步骤
+        if (window.location && window.location.hostname.includes('xj.edisec.net')) {
+            templateName = 'xuanji';
+        }
 
         if (templateName === 'custom' && this.config.customTemplate) {
             // 使用自定义模板
@@ -1141,7 +1148,8 @@ class WriteUpHelper {
             title: title,
             url: url,
             date: dateStr,
-            time: timeStr
+            time: timeStr,
+            steps: options.steps || ''
         };
 
         // 执行变量替换（使用函数式替换避免$符号问题）
@@ -1275,30 +1283,23 @@ class WriteUpHelper {
 
     /**
      * 处理长内容的降级方案
-     * @param {string} vault - vault名称
+     * URI 过长时直接显示内容对话框，确保用户能可靠获取模板内容
+     * @param {string} vault - vault名称（已编码）
      * @param {string} filePath - 文件路径
      * @param {string} template - 模板内容
      */
     async handleLongContent(vault, filePath, template) {
         try {
-            // 方案1：复制到剪贴板
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                await navigator.clipboard.writeText(template);
+            // 先打开 Obsidian 创建空文件
+            const simpleUri = `obsidian://new?vault=${vault}&file=${encodeURIComponent(filePath)}`;
+            await this.openObsidianSafely(simpleUri);
 
-                // 打开空文件
-                const simpleUri = `obsidian://new?vault=${vault}&file=${encodeURIComponent(filePath)}`;
-                this.openObsidianSafely(simpleUri);
-
-                this.showNotification('内容已复制到剪贴板，请在Obsidian中粘贴', 'info');
-                return;
-            }
-
-            // 方案2：显示内容让用户手动复制
-            this.showContentDialog(template, filePath);
-
+            // 始终显示内容对话框：用户点击「复制内容」后粘贴到 Obsidian
+            // 比静默复制到剪贴板更可靠（扩展中 clipboard 可能需用户手势触发）
+            this.showContentDialog(template, filePath, true);
         } catch (error) {
             console.error('WriteUp Helper: 长内容处理失败', error);
-            this.showNotification('内容过长，请手动创建文件', 'error');
+            this.showContentDialog(template, filePath, false);
         }
     }
 
@@ -1306,8 +1307,12 @@ class WriteUpHelper {
      * 显示内容对话框
      * @param {string} content - 内容
      * @param {string} fileName - 文件名
+     * @param {boolean} isLongContent - 是否为长内容降级（URI过长时触发），显示粘贴提示
      */
-    showContentDialog(content, fileName) {
+    showContentDialog(content, fileName, isLongContent = false) {
+        const hintHtml = isLongContent
+            ? '<p class="content-dialog-hint">Obsidian 已创建空文件，请点击「复制内容」后切换到 Obsidian 按 Ctrl+V 粘贴</p>'
+            : '';
         const dialog = document.createElement('div');
         dialog.className = 'writeup-content-dialog';
         dialog.innerHTML = `
@@ -1317,7 +1322,8 @@ class WriteUpHelper {
                     <button class="content-dialog-close">×</button>
                 </div>
                 <div class="content-dialog-body">
-                    <textarea readonly>${content}</textarea>
+                    ${hintHtml}
+                    <textarea readonly></textarea>
                     <div class="content-dialog-actions">
                         <button class="content-copy-btn">复制内容</button>
                         <button class="content-close-btn">关闭</button>
@@ -1362,6 +1368,14 @@ class WriteUpHelper {
                 flex-direction: column;
                 min-height: 400px;
             }
+            .content-dialog-hint {
+                margin: 0 0 12px 0;
+                padding: 10px 12px;
+                background: #e7f3ff;
+                border-radius: 6px;
+                font-size: 13px;
+                color: #0066cc;
+            }
             .content-dialog-body textarea {
                 flex: 1;
                 font-family: monospace;
@@ -1390,6 +1404,9 @@ class WriteUpHelper {
         `;
         document.head.appendChild(style);
         document.body.appendChild(dialog);
+
+        // 通过 .value 安全填充内容，避免 innerHTML 转义问题
+        dialog.querySelector('textarea').value = content;
 
         // 绑定事件
         const closeDialog = () => {
@@ -1453,7 +1470,24 @@ class WriteUpHelper {
         try {
             const pageTitle = document.title;
             const formattedTitle = this.formatTitle(pageTitle);
-            const template = this.generateTemplate(formattedTitle, window.location.href);
+
+            // 玄机平台：从 API 提取题目描述和步骤
+            let steps = '';
+            if (this.platformConfig && typeof this.platformConfig.stepsExtractor === 'function') {
+                try {
+                    const result = this.platformConfig.stepsExtractor();
+                    steps = result && typeof result.then === 'function'
+                        ? await result
+                        : result;
+                } catch (e) {
+                    console.warn('WriteUp Helper: 步骤提取失败', e);
+                }
+            }
+            if (!steps && window.location.hostname.includes('xj.edisec.net')) {
+                steps = '*（未能自动提取步骤，请从题目页面手动复制各步骤的题目描述）*';
+            }
+
+            const template = this.generateTemplate(formattedTitle, window.location.href, { steps });
 
             // 构建文件路径
             const filePath = `${this.config.basePath}/${formattedTitle}.md`;

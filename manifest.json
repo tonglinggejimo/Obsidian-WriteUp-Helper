@@ -20,7 +20,8 @@
                 "*://ctf.show/*",
                 "*://www.ctf.show/*",
                 "*://buuoj.cn/*",
-                "*://www.buuoj.cn/*"
+                "*://www.buuoj.cn/*",
+                "*://xj.edisec.net/*"
             ],
             "js": [
                 "config.js",
