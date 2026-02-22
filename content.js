@@ -7,6 +7,7 @@ class WriteUpHelper {
         this.config = {
             vault: 'note',
             basePath: '网安/练习WP',
+            platformPaths: {},
             buttonText: '生成WriteUp',
             checkInterval: 1000,
             template: 'standard'
@@ -99,8 +100,15 @@ class WriteUpHelper {
 
         // 检查模板字段
         if (config.template !== undefined) {
-            const validTemplates = ['standard', 'detailed', 'simple', 'custom', 'xuanji'];
+            const validTemplates = ['standard', 'detailed', 'simple', 'custom', 'xuanji', 'codewars'];
             if (!validTemplates.includes(config.template)) {
+                return false;
+            }
+        }
+
+        // 检查平台路径字段
+        if (config.platformPaths !== undefined) {
+            if (typeof config.platformPaths !== 'object' || Array.isArray(config.platformPaths)) {
                 return false;
             }
         }
@@ -596,13 +604,21 @@ class WriteUpHelper {
                             <input type="text" id="vault-input" value="${this.config.vault}" placeholder="note">
                         </div>
                         <div class="settings-item">
-                            <label>文件路径:</label>
-                            <input type="text" id="path-input" value="${this.config.basePath}" placeholder="网安/练习WP">
-                        </div>
-                        <div class="settings-item">
                             <label>按钮文本:</label>
                             <input type="text" id="button-text-input" value="${this.config.buttonText}" placeholder="生成WriteUp">
                         </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h4>平台路径设置</h4>
+                        <div class="template-help">
+                            <small>为不同平台指定 Obsidian 中的保存路径，留空则使用默认路径</small>
+                        </div>
+                        <div class="settings-item">
+                            <label>默认路径:</label>
+                            <input type="text" id="path-input" value="${this.config.basePath}" placeholder="网安/练习WP">
+                        </div>
+                        ${this.getPlatformPathsHtml()}
                     </div>
 
                     <div class="settings-section">
@@ -614,6 +630,7 @@ class WriteUpHelper {
                                 <option value="detailed" ${this.config.template === 'detailed' ? 'selected' : ''}>详细模板</option>
                                 <option value="simple" ${this.config.template === 'simple' ? 'selected' : ''}>简洁模板</option>
                                 <option value="xuanji" ${this.config.template === 'xuanji' ? 'selected' : ''}>玄机模板（含题目步骤）</option>
+                                <option value="codewars" ${this.config.template === 'codewars' ? 'selected' : ''}>Codewars模板（含题目描述）</option>
                                 <option value="custom" ${this.config.template === 'custom' ? 'selected' : ''}>自定义模板</option>
                             </select>
                         </div>
@@ -621,7 +638,7 @@ class WriteUpHelper {
                             <label>模板内容:</label>
                             <textarea id="template-content" placeholder="在此编辑模板内容..."></textarea>
                             <div class="template-help">
-                                <small>支持的变量: {{title}}, {{url}}, {{date}}, {{time}}, {{steps}}（玄机平台题目步骤）</small>
+                                <small>支持的变量: {{title}}, {{url}}, {{date}}, {{time}}, {{steps}}（玄机平台题目步骤）, {{description}}（Codewars题目描述）</small>
                             </div>
                         </div>
                     </div>
@@ -763,6 +780,18 @@ class WriteUpHelper {
                 template
             };
 
+            // 收集各平台路径
+            const platformPaths = {};
+            const platformInputs = panel.querySelectorAll('.platform-path-input');
+            platformInputs.forEach(input => {
+                const domain = input.dataset.domain;
+                const path = input.value.trim();
+                if (path) {
+                    platformPaths[domain] = path;
+                }
+            });
+            newConfig.platformPaths = platformPaths;
+
             // 如果是自定义模板，保存模板内容
             if (template === 'custom') {
                 if (!templateContent.trim()) {
@@ -797,6 +826,7 @@ class WriteUpHelper {
             const defaultConfig = {
                 vault: 'note',
                 basePath: '网安/练习WP',
+                platformPaths: {},
                 buttonText: '生成WriteUp',
                 template: 'standard'
             };
@@ -1077,6 +1107,59 @@ class WriteUpHelper {
     }
 
     /**
+     * 获取当前平台对应的保存路径
+     * 优先级：用户配置的平台路径 > 平台默认路径 > 全局默认路径
+     * @returns {string} 文件保存路径
+     */
+    getCurrentBasePath() {
+        try {
+            const hostname = window.location.hostname;
+
+            // 1. 用户在设置中为该平台配置的路径
+            if (this.config.platformPaths) {
+                for (const [domain, path] of Object.entries(this.config.platformPaths)) {
+                    if (hostname.includes(domain)) {
+                        return path;
+                    }
+                }
+            }
+
+            // 2. 平台配置中的默认路径
+            if (typeof PLATFORM_CONFIGS !== 'undefined') {
+                for (const [domain, config] of Object.entries(PLATFORM_CONFIGS)) {
+                    if (hostname.includes(domain) && config.defaultBasePath) {
+                        return config.defaultBasePath;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn('WriteUp Helper: 获取平台路径失败', e);
+        }
+
+        // 3. 全局默认路径
+        return this.config.basePath;
+    }
+
+    /**
+     * 生成平台路径设置的 HTML 输入项
+     * @returns {string} HTML 字符串
+     */
+    getPlatformPathsHtml() {
+        const configs = typeof PLATFORM_CONFIGS !== 'undefined' ? PLATFORM_CONFIGS : {};
+        let html = '';
+        for (const [domain, config] of Object.entries(configs)) {
+            const savedPath = (this.config.platformPaths && this.config.platformPaths[domain]) || '';
+            const defaultPath = config.defaultBasePath || this.config.basePath;
+            html += `
+                        <div class="settings-item">
+                            <label>${config.name}:</label>
+                            <input type="text" class="platform-path-input" data-domain="${domain}" value="${savedPath}" placeholder="${defaultPath}">
+                        </div>`;
+        }
+        return html;
+    }
+
+    /**
      * 格式化标题
      * @param {string} title - 原始标题
      * @returns {string} 格式化后的标题
@@ -1134,6 +1217,11 @@ class WriteUpHelper {
             templateName = 'xuanji';
         }
 
+        // Codewars平台使用专用模板，包含题目描述
+        if (window.location && window.location.hostname.includes('codewars.com')) {
+            templateName = 'codewars';
+        }
+
         if (templateName === 'custom' && this.config.customTemplate) {
             // 使用自定义模板
             content = this.config.customTemplate;
@@ -1149,7 +1237,8 @@ class WriteUpHelper {
             url: url,
             date: dateStr,
             time: timeStr,
-            steps: options.steps || ''
+            steps: options.steps || '',
+            description: options.description || ''
         };
 
         // 执行变量替换（使用函数式替换避免$符号问题）
@@ -1487,10 +1576,24 @@ class WriteUpHelper {
                 steps = '*（未能自动提取步骤，请从题目页面手动复制各步骤的题目描述）*';
             }
 
-            const template = this.generateTemplate(formattedTitle, window.location.href, { steps });
+            // Codewars等平台：提取题目描述
+            let description = '';
+            if (this.platformConfig && typeof this.platformConfig.descriptionExtractor === 'function') {
+                try {
+                    description = this.platformConfig.descriptionExtractor();
+                } catch (e) {
+                    console.warn('WriteUp Helper: 描述提取失败', e);
+                }
+            }
+            if (!description && window.location.hostname.includes('codewars.com')) {
+                description = '> *（未能自动提取题目描述，请手动填写）*';
+            }
 
-            // 构建文件路径
-            const filePath = `${this.config.basePath}/${formattedTitle}.md`;
+            const template = this.generateTemplate(formattedTitle, window.location.href, { steps, description });
+
+            // 构建文件路径（根据当前平台选择对应路径）
+            const currentBasePath = this.getCurrentBasePath();
+            const filePath = `${currentBasePath}/${formattedTitle}.md`;
 
             // 使用URI编码
             const vault = encodeURIComponent(this.config.vault);

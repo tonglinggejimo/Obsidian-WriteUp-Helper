@@ -21,7 +21,8 @@
                 "*://www.ctf.show/*",
                 "*://buuoj.cn/*",
                 "*://www.buuoj.cn/*",
-                "*://xj.edisec.net/*"
+                "*://xj.edisec.net/*",
+                "*://www.codewars.com/*"
             ],
             "js": [
                 "config.js",
